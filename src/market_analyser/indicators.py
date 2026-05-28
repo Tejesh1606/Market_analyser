@@ -44,7 +44,7 @@ def calculate_indicators(history: pd.DataFrame) -> pd.DataFrame:
     avg_loss = loss.rolling(window=14, min_periods=14).mean()
     rs = avg_gain / avg_loss.replace(0, pd.NA)
     df["RSI_14"] = 100 - (100 / (1 + rs))
-    df["RSI_14"] = df["RSI_14"].fillna(method="bfill").fillna(50)
+    df["RSI_14"] = df["RSI_14"].bfill().fillna(50)
 
     # ATR (14)
     high = df["High"]

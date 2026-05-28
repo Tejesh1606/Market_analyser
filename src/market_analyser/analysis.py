@@ -14,6 +14,16 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
     Returns a normalized DataFrame with the columns expected by the rest of the app.
     """
     columns = ["Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"]
+    today = date.today()
+
+    if start > today:
+        return pd.DataFrame(columns=columns)
+
+    if end > today:
+        end = today
+
+    if start > end:
+        return pd.DataFrame(columns=columns)
 
     cached_history = load_price_history(symbol, start, end)
     if not cached_history.empty:
@@ -67,6 +77,8 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
         combined = combined.drop_duplicates(subset=["Date"], keep="last")
         combined = combined.sort_values("Date").reset_index(drop=True)
         return combined
+
+    return history
 
     return history
 

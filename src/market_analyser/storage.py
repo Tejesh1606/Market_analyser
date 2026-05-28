@@ -157,7 +157,7 @@ def save_economic_events(events: Iterable[Mapping[str, Any]], db_path: Optional[
         rows,
     )
     conn.commit()
-    written = cur.rowcount if cur.rowcount is not None else len(rows)
+    written = len(rows)
     conn.close()
     return written
 
@@ -226,7 +226,7 @@ def save_price_history(symbol: str, history: pd.DataFrame, db_path: Optional[Pat
         rows,
     )
     conn.commit()
-    written = cur.rowcount if cur.rowcount is not None else len(rows)
+    written = len(rows)
     conn.close()
     return written
 
