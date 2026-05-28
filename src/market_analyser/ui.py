@@ -11,7 +11,8 @@ import streamlit as st
 
 from .economic_events import import_events_from_csv_text, get_recent_events, to_dataframe
 from .storage import init_db, save_trade_signal
-from .ml import predict_for_latest, train_model, load_trained_model, MODEL_META
+from .ml import predict_for_latest, train_model, load_trained_model, meta_path_for_interval
+from .live_quotes import fetch_xau_api_quote
 
 
 def _shift_month(anchor_date: date, delta_months: int) -> date:
@@ -338,14 +339,16 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
         bypass_cache = st.checkbox("Bypass cache / Force download", value=False, help="Force a fresh download and ignore cached data for this run")
         show_volume = st.checkbox("Show volume", value=True)
         save_prediction = st.checkbox("Save ML prediction", value=True, help="Store the latest predicted target/SL/TP in the local DB")
+        live_price_check = st.checkbox("Check live quote (XAU-API)", value=True, help="Compare the latest candle against a live price from XAU-API when available")
         run = st.button(run_button_label)
 
         st.divider()
         st.subheader("ML model")
-        model_loaded = load_trained_model()
-        if model_loaded and MODEL_META.exists():
+        model_loaded = load_trained_model(interval=interval)
+        model_meta_path = meta_path_for_interval(interval)
+        if model_loaded and model_meta_path.exists():
             try:
-                meta = pd.read_json(MODEL_META, typ="series")
+                meta = pd.read_json(model_meta_path, typ="series")
                 st.caption(f"Trained horizon: {meta.get('horizon', 'n/a')} bars")
                 scores = meta.get("scores", {})
                 if isinstance(scores, dict):
@@ -367,7 +370,7 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
             if train_button:
                 with st.spinner("Training model from cached history..."):
                     try:
-                        result = train_model(horizon=int(train_horizon), n_estimators=int(train_estimators))
+                        result = train_model(horizon=int(train_horizon), n_estimators=int(train_estimators), interval=interval)
                         st.success("Model trained and saved locally.")
                         st.write(result)
                         st.rerun()
@@ -409,9 +412,16 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
     interpretations = interpret_indicators(indicator_frame)
     signals = generate_trade_signals(symbol, history, indicator_frame, max_signals=3)
 
+    live_quote = None
+    live_quote_delta = None
+    if live_price_check:
+        live_quote = fetch_xau_api_quote(symbol)
+        if live_quote is not None:
+            live_quote_delta = live_quote - float(indicator_frame["Close"].dropna().iloc[-1])
+
     ml_prediction = None
     try:
-        ml_prediction = predict_for_latest(symbol)
+        ml_prediction = predict_for_latest(symbol, interval=interval)
     except Exception:
         ml_prediction = None
 
@@ -448,6 +458,15 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
             c2.metric("Change", f"{snapshot.get('change', 0):+.2f}")
             c3.metric("Change %", f"{snapshot.get('change_percent', 0):+.2f}%")
             c4.metric("Volatility", f"{snapshot.get('volatility', 0):.2f}%")
+
+        if live_quote is not None:
+            live_cols = st.columns(2)
+            live_cols[0].metric("Live quote", f"${live_quote:,.2f}")
+            if live_quote_delta is not None:
+                live_cols[1].metric("Live vs latest candle", f"{live_quote_delta:+,.2f}")
+            st.caption("Live quote source: XAU-API current price endpoint")
+        elif live_price_check:
+            st.info("Live quote check was enabled, but the XAU-API service did not return a price. Set `XAU_API_BASE_URL` and `XAU_API_KEY` if needed.")
 
         sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
         for it in interpretations:
