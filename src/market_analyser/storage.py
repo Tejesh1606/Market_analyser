@@ -283,3 +283,38 @@ def get_cached_symbols(db_path: Optional[Path | str] = None) -> list[str]:
     rows = [r[0] for r in cur.fetchall()]
     conn.close()
     return rows
+
+
+def save_trade_signal(
+    target_price: float,
+    stop_loss: float,
+    take_profit: float,
+    prediction_score: Optional[float] = None,
+    reasoning: Optional[str] = None,
+    db_path: Optional[Path | str] = None,
+) -> int:
+    """Save a trade signal and return the new row id."""
+    ensure_data_path()
+    conn = sqlite3.connect(str(db_path or DB_PATH))
+    cur = conn.cursor()
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    cur.execute(
+        '''
+        INSERT INTO trade_signals (run_id, target_price, stop_loss, take_profit, prediction_score, rank_order, reasoning, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''',
+        (
+            None,
+            None if target_price is None else float(target_price),
+            None if stop_loss is None else float(stop_loss),
+            None if take_profit is None else float(take_profit),
+            None if prediction_score is None else float(prediction_score),
+            None,
+            reasoning or "",
+            now,
+        ),
+    )
+    conn.commit()
+    rowid = cur.lastrowid
+    conn.close()
+    return rowid
