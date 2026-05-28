@@ -118,6 +118,28 @@ python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## Testing
+
+- Run the quick smoke checks (end-to-end):
+
+```powershell
+python scripts/run_smoke_tests.py
+```
+
+- Run the automated test suite with `pytest`:
+
+```powershell
+python -m pytest -q
+```
+
+- Install test/dev deps (if needed):
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+These tests exercise price fetching/caching, indicator calculation, scoring, and event import/save.
+
 ## How to use it
 
 ### Market analysis flow
