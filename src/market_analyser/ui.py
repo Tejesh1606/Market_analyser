@@ -331,6 +331,8 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
         symbol = st.text_input("Symbol", value="AAPL").strip().upper() or "AAPL"
         end_date = st.date_input("End date", value=date.today())
         start_date = st.date_input("Start date", value=end_date - timedelta(days=365))
+        interval = st.selectbox("Interval", ["1d", "60m", "15m", "5m", "1m"], index=0)
+        bypass_cache = st.checkbox("Bypass cache / Force download", value=False, help="Force a fresh download and ignore cached data for this run")
         show_volume = st.checkbox("Show volume", value=True)
         run = st.button(run_button_label)
 
@@ -358,7 +360,7 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
         return
 
     with st.spinner(f"Loading {symbol}..."):
-        history = fetch_price_history(symbol, start_date, end_date)
+        history = fetch_price_history(symbol, start_date, end_date, interval=interval, force_refresh=bypass_cache)
 
     if history is None or history.empty:
         st.warning("No data found for that symbol and date range.")

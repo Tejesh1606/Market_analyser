@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from datetime import datetime as _dt
 
 import pandas as pd
 import yfinance as yf
@@ -9,21 +10,24 @@ from .storage import load_price_history, save_price_history
 from .aliases import get_aliases
 
 
-def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
+def fetch_price_history(symbol: str, start: date, end: date, interval: str = "1d", force_refresh: bool = False) -> pd.DataFrame:
     """Fetch price history for `symbol` between `start` and `end`.
 
     Returns a normalized DataFrame with the columns expected by the rest of the app.
     """
     columns = ["Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"]
-    today = date.today()
+    # normalize start/end to pandas Timestamps so intraday datetimes work
+    start_ts = pd.Timestamp(start)
+    end_ts = pd.Timestamp(end)
+    today = pd.Timestamp.utcnow().date()
 
-    if start > today:
+    if start_ts.date() > today:
         return pd.DataFrame(columns=columns)
 
-    if end > today:
-        end = today
+    if end_ts.date() > today:
+        end_ts = pd.Timestamp(today)
 
-    if start > end:
+    if start_ts > end_ts:
         return pd.DataFrame(columns=columns)
 
     symbol = (symbol or "").strip()
@@ -35,11 +39,16 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
     # resolve aliases from centralized registry
     aliases = get_aliases(symbol_key)
 
-    cached_history = load_price_history(symbol_key, start, end)
-    if not cached_history.empty:
-        cached_dates = set(pd.to_datetime(cached_history["Date"], errors="coerce").dt.date.dropna())
-        expected_days = pd.date_range(start=start, end=end, freq="B").date
-        if all(day in cached_dates for day in expected_days):
+    cached_history = load_price_history(symbol_key, start_ts, end_ts)
+    if not force_refresh and not cached_history.empty:
+        # only perform the business-day completeness check for daily intervals
+        if interval == "1d":
+            cached_dates = set(pd.to_datetime(cached_history["Date"], errors="coerce").dt.date.dropna())
+            expected_days = pd.date_range(start=start, end=end, freq="B").date
+            if all(day in cached_dates for day in expected_days):
+                return cached_history
+        else:
+            # for intraday intervals just return cached if non-empty
             return cached_history
 
     # attempt download for the requested symbol, then fallback to aliases if available
@@ -48,9 +57,9 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
     try:
         history = yf.download(
             symbol_key,
-            start=start,
-            end=end,
-            interval="1d",
+            start=start_ts,
+            end=end_ts,
+            interval=interval,
             auto_adjust=False,
             progress=False,
             threads=False,

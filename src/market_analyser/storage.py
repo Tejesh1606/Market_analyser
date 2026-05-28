@@ -205,7 +205,7 @@ def save_price_history(symbol: str, history: pd.DataFrame, db_path: Optional[Pat
         rows.append(
             (
                 symbol.upper().strip(),
-                pd.Timestamp(row["Date"]).date().isoformat(),
+                pd.Timestamp(row["Date"]).isoformat(),
                 None if pd.isna(row.get("Open")) else float(row.get("Open")),
                 None if pd.isna(row.get("High")) else float(row.get("High")),
                 None if pd.isna(row.get("Low")) else float(row.get("Low")),
@@ -246,10 +246,10 @@ def load_price_history(symbol: str, start_date=None, end_date=None, db_path: Opt
 
     if start_date is not None:
         query.append("AND price_date >= ?")
-        params.append(pd.Timestamp(start_date).date().isoformat())
+        params.append(pd.Timestamp(start_date).isoformat())
     if end_date is not None:
         query.append("AND price_date <= ?")
-        params.append(pd.Timestamp(end_date).date().isoformat())
+        params.append(pd.Timestamp(end_date).isoformat())
 
     query.append("ORDER BY price_date ASC")
     frame = pd.read_sql_query("\n".join(query), conn, params=params)
