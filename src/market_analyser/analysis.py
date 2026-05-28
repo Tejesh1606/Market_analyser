@@ -25,16 +25,32 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
     if start > end:
         return pd.DataFrame(columns=columns)
 
-    cached_history = load_price_history(symbol, start, end)
+    symbol = (symbol or "").strip()
+    if not symbol:
+        return pd.DataFrame(columns=columns)
+
+    symbol_key = symbol.upper().strip()
+
+    # simple alias map for common instruments where Yahoo uses different tickers
+    aliases: dict[str, list[str]] = {
+        "XAU": ["GC=F"],
+        "XAUUSD": ["GC=F"],
+        "GOLD": ["GC=F"],
+    }
+
+    cached_history = load_price_history(symbol_key, start, end)
     if not cached_history.empty:
         cached_dates = set(pd.to_datetime(cached_history["Date"], errors="coerce").dt.date.dropna())
         expected_days = pd.date_range(start=start, end=end, freq="B").date
         if all(day in cached_dates for day in expected_days):
             return cached_history
 
+    # attempt download for the requested symbol, then fallback to aliases if available
+    history = pd.DataFrame()
+    used_ticker = symbol_key
     try:
         history = yf.download(
-            symbol,
+            symbol_key,
             start=start,
             end=end,
             interval="1d",
@@ -43,7 +59,27 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
             threads=False,
         )
     except Exception:
-        return pd.DataFrame(columns=columns)
+        history = pd.DataFrame()
+
+    if history is None or history.empty:
+        # try alias fallbacks
+        for alias in aliases.get(symbol_key, []):
+            try:
+                tmp = yf.download(
+                    alias,
+                    start=start,
+                    end=end,
+                    interval="1d",
+                    auto_adjust=False,
+                    progress=False,
+                    threads=False,
+                )
+            except Exception:
+                tmp = pd.DataFrame()
+            if tmp is not None and not tmp.empty:
+                history = tmp
+                used_ticker = alias
+                break
 
     if history is None or history.empty:
         return pd.DataFrame(columns=columns)
@@ -68,7 +104,8 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
     history = history[columns].sort_values("Date").reset_index(drop=True)
 
     if not history.empty:
-        save_price_history(symbol, history)
+        # save using the original requested symbol key so future lookups use the cache
+        save_price_history(symbol_key, history)
 
     if not cached_history.empty:
         combined = pd.concat([cached_history, history], ignore_index=True)
@@ -77,9 +114,6 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
         combined = combined.drop_duplicates(subset=["Date"], keep="last")
         combined = combined.sort_values("Date").reset_index(drop=True)
         return combined
-
-    return history
-
     return history
 
 
