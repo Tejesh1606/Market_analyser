@@ -6,6 +6,7 @@ import pandas as pd
 import yfinance as yf
 
 from .storage import load_price_history, save_price_history
+from .aliases import get_aliases
 
 
 def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -31,12 +32,8 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
 
     symbol_key = symbol.upper().strip()
 
-    # simple alias map for common instruments where Yahoo uses different tickers
-    aliases: dict[str, list[str]] = {
-        "XAU": ["GC=F"],
-        "XAUUSD": ["GC=F"],
-        "GOLD": ["GC=F"],
-    }
+    # resolve aliases from centralized registry
+    aliases = get_aliases(symbol_key)
 
     cached_history = load_price_history(symbol_key, start, end)
     if not cached_history.empty:
@@ -63,7 +60,7 @@ def fetch_price_history(symbol: str, start: date, end: date) -> pd.DataFrame:
 
     if history is None or history.empty:
         # try alias fallbacks
-        for alias in aliases.get(symbol_key, []):
+        for alias in aliases:
             try:
                 tmp = yf.download(
                     alias,
