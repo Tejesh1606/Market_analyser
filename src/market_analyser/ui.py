@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+from numbers import Number
 from datetime import date, timedelta, datetime
 
 import pandas as pd
@@ -9,7 +10,8 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from .economic_events import import_events_from_csv_text, get_recent_events, to_dataframe
-from .storage import init_db
+from .storage import init_db, save_trade_signal
+from .ml import predict_for_latest, train_model, load_trained_model, MODEL_META
 
 
 def _shift_month(anchor_date: date, delta_months: int) -> date:
@@ -329,12 +331,48 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
     with st.sidebar:
         st.header("Controls")
         symbol = st.text_input("Symbol", value="AAPL").strip().upper() or "AAPL"
+        provider = st.selectbox("Provider", ["auto", "alpha_vantage", "yfinance"], index=0)
         end_date = st.date_input("End date", value=date.today())
         start_date = st.date_input("Start date", value=end_date - timedelta(days=365))
         interval = st.selectbox("Interval", ["1d", "60m", "15m", "5m", "1m"], index=0)
         bypass_cache = st.checkbox("Bypass cache / Force download", value=False, help="Force a fresh download and ignore cached data for this run")
         show_volume = st.checkbox("Show volume", value=True)
+        save_prediction = st.checkbox("Save ML prediction", value=True, help="Store the latest predicted target/SL/TP in the local DB")
         run = st.button(run_button_label)
+
+        st.divider()
+        st.subheader("ML model")
+        model_loaded = load_trained_model()
+        if model_loaded and MODEL_META.exists():
+            try:
+                meta = pd.read_json(MODEL_META, typ="series")
+                st.caption(f"Trained horizon: {meta.get('horizon', 'n/a')} bars")
+                scores = meta.get("scores", {})
+                if isinstance(scores, dict):
+                    r2 = scores.get("r2")
+                    mae = scores.get("mae")
+                    if isinstance(r2, Number) and isinstance(mae, Number):
+                        st.caption(f"R²: {float(r2):.3f} | MAE: {float(mae):.4f}")
+                    else:
+                        st.caption("Model ready")
+            except Exception:
+                st.caption("Model ready")
+        else:
+            st.caption("No trained model saved yet")
+
+        with st.expander("Train / retrain model", expanded=False):
+            train_horizon = st.number_input("Prediction horizon (bars)", min_value=1, max_value=20, value=5, step=1)
+            train_estimators = st.number_input("Trees (n_estimators)", min_value=10, max_value=300, value=50, step=10)
+            train_button = st.button("Train model now", use_container_width=True)
+            if train_button:
+                with st.spinner("Training model from cached history..."):
+                    try:
+                        result = train_model(horizon=int(train_horizon), n_estimators=int(train_estimators))
+                        st.success("Model trained and saved locally.")
+                        st.write(result)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Training failed: {exc}")
 
         st.divider()
         st.subheader("Economic events")
@@ -360,7 +398,7 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
         return
 
     with st.spinner(f"Loading {symbol}..."):
-        history = fetch_price_history(symbol, start_date, end_date, interval=interval, force_refresh=bypass_cache)
+        history = fetch_price_history(symbol, start_date, end_date, interval=interval, force_refresh=bypass_cache, provider=provider)
 
     if history is None or history.empty:
         st.warning("No data found for that symbol and date range.")
@@ -370,6 +408,31 @@ def render_dashboard(*, run_button_label: str = "Run analysis") -> None:
     indicator_frame = calculate_indicators(history)
     interpretations = interpret_indicators(indicator_frame)
     signals = generate_trade_signals(symbol, history, indicator_frame, max_signals=3)
+
+    ml_prediction = None
+    try:
+        ml_prediction = predict_for_latest(symbol)
+    except Exception:
+        ml_prediction = None
+
+    if ml_prediction:
+        pred_target = float(ml_prediction.get("pred_tp") or 0)
+        pred_sl = float(ml_prediction.get("pred_sl") or 0)
+        pred_ret = float(ml_prediction.get("pred_ret") or 0)
+        st.info(
+            f"ML prediction: target {pred_target:,.2f}, stop loss {pred_sl:,.2f}, expected return {pred_ret:+.2%}"
+        )
+        if save_prediction:
+            try:
+                save_trade_signal(
+                    target_price=pred_target,
+                    stop_loss=pred_sl,
+                    take_profit=pred_target,
+                    prediction_score=pred_ret,
+                    reasoning=f"ML prediction for {symbol}",
+                )
+            except Exception:
+                pass
 
     try:
         snapshot = build_market_snapshot(symbol, indicator_frame)

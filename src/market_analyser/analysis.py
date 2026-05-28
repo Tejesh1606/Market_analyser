@@ -6,11 +6,23 @@ from datetime import datetime as _dt
 import pandas as pd
 import yfinance as yf
 
+from .config import load_dotenv_file
 from .storage import load_price_history, save_price_history
 from .aliases import get_aliases
+from .alpha_vantage import fetch_alpha_vantage_history
 
 
-def fetch_price_history(symbol: str, start: date, end: date, interval: str = "1d", force_refresh: bool = False) -> pd.DataFrame:
+load_dotenv_file()
+
+
+def fetch_price_history(
+    symbol: str,
+    start: date,
+    end: date,
+    interval: str = "1d",
+    force_refresh: bool = False,
+    provider: str = "auto",
+) -> pd.DataFrame:
     """Fetch price history for `symbol` between `start` and `end`.
 
     Returns a normalized DataFrame with the columns expected by the rest of the app.
@@ -50,6 +62,15 @@ def fetch_price_history(symbol: str, start: date, end: date, interval: str = "1d
         else:
             # for intraday intervals just return cached if non-empty
             return cached_history
+
+    provider_key = (provider or "auto").strip().lower()
+
+    # Prefer Alpha Vantage for FX-style symbols when an API key is available.
+    if provider_key in {"auto", "alpha_vantage", "alphavantage", "av"}:
+        av_history = fetch_alpha_vantage_history(symbol_key, start_ts, end_ts, interval=interval)
+        if not av_history.empty:
+            save_price_history(symbol_key, av_history)
+            return av_history
 
     # attempt download for the requested symbol, then fallback to aliases if available
     history = pd.DataFrame()
