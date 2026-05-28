@@ -8,11 +8,14 @@ from typing import Optional
 import pandas as pd
 import requests
 
+from .config import load_dotenv_file
+
 
 ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query"
 
 
 def _alpha_vantage_key() -> Optional[str]:
+    load_dotenv_file()
     return os.environ.get("alpha_vantage_free_key") or os.environ.get("ALPHA_VANTAGE_API_KEY")
 
 

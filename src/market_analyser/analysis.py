@@ -51,6 +51,39 @@ def fetch_price_history(
     # resolve aliases from centralized registry
     aliases = get_aliases(symbol_key)
 
+    # Fast path for intraday metal symbols: use the futures proxy directly.
+    if interval != "1d" and symbol_key in {"XAU", "XAUUSD", "GOLD"}:
+        try:
+            proxy_history = yf.download(
+                "GC=F",
+                start=start_ts,
+                end=end_ts,
+                interval=interval,
+                auto_adjust=False,
+                progress=False,
+                threads=False,
+            )
+        except Exception:
+            proxy_history = pd.DataFrame()
+
+        if proxy_history is not None and not proxy_history.empty:
+            if isinstance(proxy_history.columns, pd.MultiIndex):
+                proxy_history.columns = [str(level_0) for level_0, _level_1 in proxy_history.columns]
+            proxy_history = proxy_history.reset_index()
+            if "index" in proxy_history.columns:
+                proxy_history = proxy_history.rename(columns={"index": "Date"})
+            elif "Datetime" in proxy_history.columns:
+                proxy_history = proxy_history.rename(columns={"Datetime": "Date"})
+            proxy_history["Date"] = pd.to_datetime(proxy_history["Date"], errors="coerce")
+            proxy_history = proxy_history.dropna(subset=["Date"])
+            for column in columns:
+                if column not in proxy_history.columns:
+                    proxy_history[column] = pd.NA
+            proxy_history = proxy_history[columns].sort_values("Date").reset_index(drop=True)
+            if not proxy_history.empty:
+                save_price_history(symbol_key, proxy_history)
+                return proxy_history
+
     cached_history = load_price_history(symbol_key, start_ts, end_ts)
     if not force_refresh and not cached_history.empty:
         # only perform the business-day completeness check for daily intervals
@@ -72,41 +105,41 @@ def fetch_price_history(
             save_price_history(symbol_key, av_history)
             return av_history
 
-    # attempt download for the requested symbol, then fallback to aliases if available
+    # attempt download for the requested symbol and alias/proxy fallbacks.
     history = pd.DataFrame()
     used_ticker = symbol_key
-    try:
-        history = yf.download(
-            symbol_key,
-            start=start_ts,
-            end=end_ts,
-            interval=interval,
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-        )
-    except Exception:
-        history = pd.DataFrame()
+    download_order = list(aliases) + [symbol_key] if interval != "1d" and aliases else [symbol_key] + list(aliases)
+    for candidate in download_order:
+        try:
+            tmp = yf.download(
+                candidate,
+                start=start_ts,
+                end=end_ts,
+                interval=interval,
+                auto_adjust=False,
+                progress=False,
+                threads=False,
+            )
+        except Exception:
+            tmp = pd.DataFrame()
 
-    if history is None or history.empty:
-        # try alias fallbacks
-        for alias in aliases:
+        if tmp is None or tmp.empty:
+            continue
+
+        if interval != "1d" and aliases:
+            # If the requested intraday interval still yields daily-shaped rows, keep looking.
             try:
-                tmp = yf.download(
-                    alias,
-                    start=start,
-                    end=end,
-                    interval="1d",
-                    auto_adjust=False,
-                    progress=False,
-                    threads=False,
-                )
+                idx = pd.to_datetime(tmp.index, errors="coerce")
+                if getattr(idx, "notna", None) is not None and len(idx) > 0:
+                    looks_daily = bool((idx.hour == 0).all() and (idx.minute == 0).all() and (idx.second == 0).all())
+                    if looks_daily:
+                        continue
             except Exception:
-                tmp = pd.DataFrame()
-            if tmp is not None and not tmp.empty:
-                history = tmp
-                used_ticker = alias
-                break
+                pass
+
+        history = tmp
+        used_ticker = candidate
+        break
 
     if history is None or history.empty:
         return pd.DataFrame(columns=columns)

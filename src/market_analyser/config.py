@@ -27,6 +27,10 @@ def load_dotenv_file(dotenv_path: Path | None = None) -> None:
 		if key and key not in os.environ:
 			os.environ[key] = value
 
+
+# Load local environment variables as soon as the config module is imported.
+load_dotenv_file()
+
 DEFAULT_TIMEFRAME = "1d"
 DEFAULT_LOOKBACK_DAYS = 365
 DEFAULT_INDICATORS = ["SMA_20", "SMA_50", "RSI_14", "MACD", "ATR_14"]
