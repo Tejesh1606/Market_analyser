@@ -7,3 +7,5 @@ data/
 .pytest_cache/
 .idea/
 *.db
+# Local chat logs for app development (do not commit)
+chats/*.md
