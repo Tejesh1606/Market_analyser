@@ -272,3 +272,14 @@ def load_price_history(symbol: str, start_date=None, end_date=None, db_path: Opt
     frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
     frame = frame.dropna(subset=["Date"])
     return frame[["Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"]].reset_index(drop=True)
+
+
+def get_cached_symbols(db_path: Optional[Path | str] = None) -> list[str]:
+    """Return list of distinct symbols in the price cache."""
+    ensure_data_path()
+    conn = sqlite3.connect(str(db_path or DB_PATH))
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT symbol FROM price_cache")
+    rows = [r[0] for r in cur.fetchall()]
+    conn.close()
+    return rows

@@ -4,3 +4,4 @@ pandas>=2.2
 numpy>=1.26
 yfinance>=0.2.43
 pytest>=7.0
+scikit-learn>=1.2

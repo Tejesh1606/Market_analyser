@@ -71,6 +71,8 @@ def calculate_indicators(history: pd.DataFrame) -> pd.DataFrame:
     low14 = df["Low"].rolling(window=14, min_periods=1).min()
     high14 = df["High"].rolling(window=14, min_periods=1).max()
     df["STOCH_K"] = ((df["Close"] - low14) / (high14 - low14).replace(0, pd.NA)) * 100
+    # ensure STOCH_K is numeric (replace pd.NA with np.nan) to allow rolling ops
+    df["STOCH_K"] = pd.to_numeric(df["STOCH_K"], errors="coerce")
     df["STOCH_D"] = df["STOCH_K"].rolling(window=3, min_periods=1).mean()
     df["STOCH_DEV"] = df["STOCH_K"] - df["STOCH_D"]
 
